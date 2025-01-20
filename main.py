@@ -9,11 +9,11 @@ def main():
         data_type="klines",  # aggTrades, klines, trades
         data_frequency="1m",  # argument for data_type="klines"
     )
+    
+    symbols = data_dumper.get_list_all_trading_pairs()
 
     data_dumper.dump_data(
-        tickers='ETHUSDT',
-        date_start=datetime.date(year=2022, month=1, day=1),
-        date_end=datetime.date(year=2025, month=1, day=19),
+        tickers=symbols,
         is_to_update_existing=False,
         tickers_to_exclude=["UST"],
     )

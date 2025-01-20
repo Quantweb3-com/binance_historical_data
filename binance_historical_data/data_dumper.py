@@ -9,12 +9,14 @@ import logging
 from collections import defaultdict
 from collections import Counter
 import zipfile
+import ssl
 import datetime
 import pandas as pd
 
 from dateutil.relativedelta import relativedelta
 
 # Third party imports
+import certifi
 from tqdm.auto import tqdm
 from char import char
 from mpire import WorkerPool
@@ -197,7 +199,10 @@ class BinanceDataDumper:
     def _get_list_all_available_files(self, prefix=""):
         """Get all available files from the binance servers"""
         url = os.path.join(self._base_url, prefix).replace("\\", "/").replace("data/", "?prefix=data/")
-        response = urllib.request.urlopen(url)
+        
+        ssl_context = ssl.create_default_context(cafile=certifi.where())
+        
+        response = urllib.request.urlopen(url, context=ssl_context)
         html_content = response.read().decode('utf-8')
 
         # Extract the BUCKET_URL variable
@@ -208,7 +213,7 @@ class BinanceDataDumper:
             bucket_url = match.group(1) + "?delimiter=/&prefix=data/" + prefix.replace('\\', '/') + "/"
 
             # Retrieve the content of the BUCKET_URL
-            bucket_response = urllib.request.urlopen(bucket_url)
+            bucket_response = urllib.request.urlopen(bucket_url, context=ssl_context)
             bucket_content = bucket_response.read().decode('utf-8')
 
             # Parse the XML content and extract all <Key> elements
