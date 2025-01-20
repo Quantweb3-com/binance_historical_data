@@ -10,6 +10,8 @@ from collections import defaultdict
 from collections import Counter
 import zipfile
 import datetime
+import pandas as pd
+
 from dateutil.relativedelta import relativedelta
 
 # Third party imports
@@ -128,9 +130,9 @@ class BinanceDataDumper:
             date_start = datetime.date(year=2017, month=1, day=1)
         # End date
         if date_end is None:
-            date_end = datetime.datetime.utcnow().date() - relativedelta(days=1)
-        if date_end > datetime.datetime.utcnow().date()  - relativedelta(days=1):
-            date_end = datetime.datetime.utcnow().date()  - relativedelta(days=1)
+            date_end = datetime.datetime.now(tz=datetime.timezone.utc).date() - relativedelta(days=1)
+        if date_end > datetime.datetime.now(tz=datetime.timezone.utc).date() - relativedelta(days=1):
+            date_end = datetime.datetime.now(tz=datetime.timezone.utc).date() - relativedelta(days=1)
         LOGGER.info("---> Start Date: %s", date_start.strftime("%Y%m%d"))
         LOGGER.info("---> End Date: %s", date_end.strftime("%Y%m%d"))
         date_end_first_day_of_month = datetime.date(
@@ -297,7 +299,7 @@ class BinanceDataDumper:
             list[datetime.date]: dates with saved data
         """
         date_start = datetime.date(year=2017, month=1, day=1)
-        date_end = datetime.datetime.utcnow().date()
+        date_end = datetime.datetime.now(datetime.timezone.utc).date()
         list_dates = self._create_list_dates_for_timeperiod(
             date_start=date_start,
             date_end=date_end,
@@ -313,7 +315,7 @@ class BinanceDataDumper:
                 ticker,
                 date_obj,
                 timeperiod_per_file=timeperiod_per_file,
-                extension="csv",
+                extension="parquet",
             )
             path_where_to_save = os.path.join(
                 str_dir_where_to_save, file_name)
@@ -498,8 +500,12 @@ class BinanceDataDumper:
             return None
         # 4) Extract zip archive
         try:
-            with zipfile.ZipFile(path_zip_raw_file, 'r') as zip_ref:
-                zip_ref.extractall(os.path.dirname(path_zip_raw_file))
+            # with zipfile.ZipFile(path_zip_raw_file, 'r') as zip_ref:
+            #     zip_ref.extractall(os.path.dirname(path_zip_raw_file))
+            df = pd.read_csv(path_zip_raw_file)
+            path_parquet_file = path_zip_raw_file.replace(".zip", ".parquet")
+            df.to_parquet(path_parquet_file)
+            
         except Exception as ex:
             LOGGER.warning(
                 "Unable to unzip file %s with error: %s", path_zip_raw_file, ex)
@@ -676,7 +682,7 @@ class BinanceDataDumper:
         """Create list dates with asked frequency for [date_start, date_end]"""
         list_dates = []
         if date_end is None:
-            date_end = datetime.datetime.utcnow().date
+            date_end = datetime.datetime.now(datetime.timezone.utc).date
         LOGGER.debug(
             "Create dates to dump data for: %s -> %s", date_start, date_end)
         #####
