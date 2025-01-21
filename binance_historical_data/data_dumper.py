@@ -38,13 +38,14 @@ class BinanceDataDumper:
     _DATA_FREQUENCY_NEEDED_FOR_TYPE = ("klines", "indexPriceKlines", "markPriceKlines", "premiumIndexKlines")
     _DATA_FREQUENCY_ENUM = ('1s','1m', '3m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '8h', '12h',
                             '1d', '3d', '1w', '1mo')
-
+    _SAVE_FORMAT_ENUM = ('csv', 'parquet')
     def __init__(
             self,
             path_dir_where_to_dump,
             asset_class="spot",  # spot, um, cm
             data_type="klines",  # aggTrades, klines, trades
             data_frequency="1m",  # argument for data_type="klines"
+            save_format="csv",
     ) -> None:
         """Init object to dump all data from binance servers
 
@@ -55,6 +56,8 @@ class BinanceDataDumper:
             data_frequency (str): \
                 Data frequency. [1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h]
                 Defaults to "1m".
+            save_format (str): Format to save data: [csv, parquet]
+                Defaults to "csv".
         """
         if asset_class not in (self._ASSET_CLASSES + self._FUTURES_ASSET_CLASSES):
             raise ValueError(
@@ -74,16 +77,19 @@ class BinanceDataDumper:
             self._data_frequency = data_frequency
         else:
             self._data_frequency = ""
+        
+        if save_format not in self._SAVE_FORMAT_ENUM:
+            raise ValueError(
+                f"Unknown save format: {save_format} "
+                f"not in {self._SAVE_FORMAT_ENUM}")
 
         self.path_dir_where_to_dump = path_dir_where_to_dump
         self.dict_new_points_saved_by_ticker = defaultdict(dict)
         self._base_url = "https://data.binance.vision/data"
         self._asset_class = asset_class
         self._data_type = data_type
-
-
-
-
+        self._save_format = save_format
+        
     @char
     def dump_data(
             self,
@@ -320,7 +326,7 @@ class BinanceDataDumper:
                 ticker,
                 date_obj,
                 timeperiod_per_file=timeperiod_per_file,
-                extension="parquet",
+                extension=self._save_format,
             )
             path_where_to_save = os.path.join(
                 str_dir_where_to_save, file_name)
@@ -377,7 +383,7 @@ class BinanceDataDumper:
                     ticker,
                     date_saved_day,
                     timeperiod_per_file="daily",
-                    extension="parquet", #NOTE: we use parquet instead of csv
+                    extension=self._save_format #NOTE: change parquet to self._save_format which user can choose
                 )
                 try:
                     os.remove(os.path.join(str_folder, str_filename))
@@ -505,32 +511,33 @@ class BinanceDataDumper:
             return None
         # 4) Extract zip archive
         try:
-            # with zipfile.ZipFile(path_zip_raw_file, 'r') as zip_ref:
-            #     zip_ref.extractall(os.path.dirname(path_zip_raw_file))
-            if self._data_type == "klines":
-                #NOTE: fix the problem of spot klines data (after 2025-01-01) wrongly formatted
-                df = pd.read_csv(
-                    path_zip_raw_file,
-                    names=[
-                        "open_time",
-                        "open",
-                        "high",
-                        "low",
-                        "close",
-                        "volume",
-                        "close_time",
-                        "quote_volume",
-                        "count",
-                        "taker_buy_volume",
-                        "taker_buy_quote_volume",
-                        "ignore",
-                    ]
-                )
-            else:
-                df = pd.read_csv(path_zip_raw_file)
-            path_parquet_file = path_zip_raw_file.replace(".zip", ".parquet")
-            df.to_parquet(path_parquet_file)
-            
+            if self._save_format == "csv":            
+                with zipfile.ZipFile(path_zip_raw_file, 'r') as zip_ref:
+                    zip_ref.extractall(os.path.dirname(path_zip_raw_file))
+            elif self._save_format == "parquet":
+                if self._data_type == "klines":
+                    #NOTE: fix the problem of spot klines data (after 2025-01-01) wrongly formatted
+                    df = pd.read_csv(
+                        path_zip_raw_file,
+                        names=[
+                            "open_time",
+                            "open",
+                            "high",
+                            "low",
+                            "close",
+                            "volume",
+                            "close_time",
+                            "quote_volume",
+                            "count",
+                            "taker_buy_volume",
+                            "taker_buy_quote_volume",
+                            "ignore",
+                        ]
+                    )
+                else:
+                    df = pd.read_csv(path_zip_raw_file)
+                path_parquet_file = path_zip_raw_file.replace(".zip", ".parquet")
+                df.to_parquet(path_parquet_file)
         except Exception as ex:
             LOGGER.warning(
                 "Unable to unzip file %s with error: %s", path_zip_raw_file, ex)
