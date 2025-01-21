@@ -377,7 +377,7 @@ class BinanceDataDumper:
                     ticker,
                     date_saved_day,
                     timeperiod_per_file="daily",
-                    extension="csv",
+                    extension="parquet", #NOTE: we use parquet instead of csv
                 )
                 try:
                     os.remove(os.path.join(str_folder, str_filename))
@@ -507,7 +507,27 @@ class BinanceDataDumper:
         try:
             # with zipfile.ZipFile(path_zip_raw_file, 'r') as zip_ref:
             #     zip_ref.extractall(os.path.dirname(path_zip_raw_file))
-            df = pd.read_csv(path_zip_raw_file)
+            if self._data_type == "klines":
+                #NOTE: fix the problem of spot klines data (after 2025-01-01) wrongly formatted
+                df = pd.read_csv(
+                    path_zip_raw_file,
+                    names=[
+                        "open_time",
+                        "open",
+                        "high",
+                        "low",
+                        "close",
+                        "volume",
+                        "close_time",
+                        "quote_volume",
+                        "count",
+                        "taker_buy_volume",
+                        "taker_buy_quote_volume",
+                        "ignore",
+                    ]
+                )
+            else:
+                df = pd.read_csv(path_zip_raw_file)
             path_parquet_file = path_zip_raw_file.replace(".zip", ".parquet")
             df.to_parquet(path_parquet_file)
             
