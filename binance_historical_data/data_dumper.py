@@ -51,6 +51,8 @@ class BinanceDataDumper:
             data_type="klines",  # aggTrades, klines, trades
             data_frequency="1m",  # argument for data_type="klines"
             save_format="csv",
+            retry_base_time=2,
+            max_retries=5
     ) -> None:
         """Init object to dump all data from binance servers
 
@@ -100,6 +102,9 @@ class BinanceDataDumper:
         
         self._bucket_name = "data.binance.vision"
         self._bucket_prefix = "data/"
+        
+        self._retry_base_time = retry_base_time
+        self._max_retries = max_retries
         
     @char
     def dump_data(
@@ -533,7 +538,7 @@ class BinanceDataDumper:
         url_file_to_download = os.path.join(
             self._base_url, path_folder_suffix, file_name)
         # 3) Download file and unzip it
-        if not self._download_raw_file(url_file_to_download, path_zip_raw_file):
+        if not self._download_raw_file_v2(url_file_to_download, path_zip_raw_file):
             return None
         # 4) Extract zip archive
         try:
@@ -601,13 +606,15 @@ class BinanceDataDumper:
 
         return folder_path
 
-    @staticmethod
-    def _download_raw_file(str_url_path_to_file, str_path_where_to_save, retry_base_time=2, max_retries=5):
+    
+    def _download_raw_file(self, str_url_path_to_file, str_path_where_to_save):
         """Download file from binance server by URL"""
         LOGGER.debug("Download file from: %s", str_url_path_to_file)
         str_url_path_to_file = str_url_path_to_file.replace("\\", "/")
         
         retry_count = 0
+        max_retries = self._max_retries
+        retry_base_time = self._retry_base_time
         
         while retry_count < max_retries:
             try:
@@ -665,15 +672,16 @@ class BinanceDataDumper:
                 )
                 return 0
     
-    def _download_raw_file_v2(self, str_url_path_to_file: str, str_path_where_to_save: str, retry_base_time: int=2, max_retries: int=5):
-        """从S3下载文件"""
-        # 从URL中提取key
+    def _download_raw_file_v2(self, str_url_path_to_file: str, str_path_where_to_save: str):
+        """Download file from S3"""
         key = str_url_path_to_file.replace("https://data.binance.vision/data/", "")
         key = key.replace("\\", "/")
         
         key = urljoin(self._bucket_prefix, key)
         
         retry_count = 0
+        max_retries = self._max_retries
+        retry_base_time = self._retry_base_time
         while retry_count < max_retries:
             try:
                 if "trades" not in key.lower():
@@ -683,7 +691,6 @@ class BinanceDataDumper:
                         str_path_where_to_save
                     )
                 else:
-                    # 对于trades数据使用进度条
                     with tqdm(unit="B", unit_scale=True, miniters=1,
                             desc="downloading: " + key.split("/")[-1]) as progress_bar:
                         def progress_callback(bytes_amount):
