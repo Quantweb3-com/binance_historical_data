@@ -822,19 +822,19 @@ class BinanceDataDumper:
 
             except botocore.exceptions.ClientError as e:
                 if e.response["Error"]["Code"] == "404":
-                    LOGGER.warning("[WARNING] File not found: %s", key)
+                    LOGGER.warning("File not found: %s", key)
                     return 0
                 retry_count += 1
 
             except Exception as ex:
-                LOGGER.warning("[WARNING] Error downloading %s: %s", key, str(ex))
+                LOGGER.debug("[WARNING] Error downloading %s: %s", key, str(ex))
                 retry_count += 1
 
             if retry_count < max_retries:
                 wait_time = retry_base_time**retry_count
                 time.sleep(wait_time)
             else:
-                LOGGER.warning(
+                LOGGER.error(
                     "Failed to download after %d retries: %s", max_retries, key
                 )
                 return 0
