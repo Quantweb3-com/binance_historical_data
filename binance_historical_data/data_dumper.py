@@ -538,7 +538,7 @@ class BinanceDataDumper:
         url_file_to_download = os.path.join(
             self._base_url, path_folder_suffix, file_name)
         # 3) Download file and unzip it
-        if not self._download_raw_file_v2(url_file_to_download, path_zip_raw_file):
+        if not self._download_raw_file(url_file_to_download, path_zip_raw_file):
             return None
         # 4) Extract zip archive
         try:
@@ -548,23 +548,7 @@ class BinanceDataDumper:
             elif self._save_format == "parquet":
                 if self._data_type == "klines":
                     #NOTE: fix the problem of spot klines data (after 2025-01-01) wrongly formatted
-                    df = pd.read_csv(
-                        path_zip_raw_file,
-                        names=[
-                            "open_time",
-                            "open",
-                            "high",
-                            "low",
-                            "close",
-                            "volume",
-                            "close_time",
-                            "quote_volume",
-                            "count",
-                            "taker_buy_volume",
-                            "taker_buy_quote_volume",
-                            "ignore",
-                        ]
-                    )
+                    df = self._read_klines_csv(path_zip_raw_file)
                 else:
                     df = pd.read_csv(path_zip_raw_file)
                 path_parquet_file = path_zip_raw_file.replace(".zip", ".parquet")
@@ -582,6 +566,50 @@ class BinanceDataDumper:
                 path_zip_raw_file, ex)
             return None
         return date_obj
+
+    def _read_klines_csv(self, path_zip_raw_file):
+        """读取K线数据CSV文件，自动处理有无header的情况
+        
+        Args:
+            path_zip_raw_file (str): CSV文件路径
+            
+        Returns:
+            pd.DataFrame: 处理后的数据框
+        """
+        dtype_dict = {
+            "open_time": 'int64',
+            "open": 'float64',
+            "high": 'float64',
+            "low": 'float64',
+            "close": 'float64',
+            "volume": 'float64',
+            "close_time": 'int64',
+            "quote_volume": 'float64',
+            "count": 'int64',
+            "taker_buy_volume": 'float64',
+            "taker_buy_quote_volume": 'float64',
+            "ignore": 'int64'
+        }
+        
+        expected_columns = [
+            "open_time", "open", "high", "low", "close", 
+            "volume", "close_time", "quote_volume", "count",
+            "taker_buy_volume", "taker_buy_quote_volume", "ignore"
+        ]
+        
+        # 首先尝试自动检测header
+        df = pd.read_csv(path_zip_raw_file, dtype=dtype_dict)
+        
+        # 如果列名不匹配预期的列名，说明文件没有header
+        if list(df.columns) != expected_columns:
+            df = pd.read_csv(
+                path_zip_raw_file,
+                header=None,
+                names=expected_columns,
+                dtype=dtype_dict
+            )
+            
+        return df
 
     def _get_path_suffix_to_dir_with_data(self, timeperiod_per_file, ticker):
         """_summary_
