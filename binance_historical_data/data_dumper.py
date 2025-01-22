@@ -12,6 +12,7 @@ import zipfile
 import ssl
 import datetime
 import pandas as pd
+import time
 
 from dateutil.relativedelta import relativedelta
 
@@ -58,6 +59,8 @@ class BinanceDataDumper:
                 Defaults to "1m".
             save_format (str): Format to save data: [csv, parquet]
                 Defaults to "csv".
+            retry_base_time (int): Base time to wait before retrying in seconds
+            max_retries (int): Maximum number of retries
         """
         if asset_class not in (self._ASSET_CLASSES + self._FUTURES_ASSET_CLASSES):
             raise ValueError(
@@ -576,36 +579,68 @@ class BinanceDataDumper:
         return folder_path
 
     @staticmethod
-    def _download_raw_file(str_url_path_to_file, str_path_where_to_save):
+    def _download_raw_file(str_url_path_to_file, str_path_where_to_save, retry_base_time=2, max_retries=5):
         """Download file from binance server by URL"""
-
         LOGGER.debug("Download file from: %s", str_url_path_to_file)
         str_url_path_to_file = str_url_path_to_file.replace("\\", "/")
-        try:
-            if "trades" not in str_url_path_to_file.lower():
-                urllib.request.urlretrieve(str_url_path_to_file, str_path_where_to_save)
-            else:  # only show progress bar for trades data as the files are usually big
-                with tqdm(unit="B", unit_scale=True, miniters=1,
-                          desc="downloading: " + str_url_path_to_file.split("/")[-1]) as progress_bar:
-                    def progress_hook(count, block_size, total_size):
-                        current_size = block_size * count
-                        previous_progress = progress_bar.n / total_size * 100
-                        current_progress = current_size / total_size * 100
+        
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                if "trades" not in str_url_path_to_file.lower():
+                    urllib.request.urlretrieve(str_url_path_to_file, str_path_where_to_save)
+                else:
+                    with tqdm(unit="B", unit_scale=True, miniters=1,
+                            desc="downloading: " + str_url_path_to_file.split("/")[-1]) as progress_bar:
+                        def progress_hook(count, block_size, total_size):
+                            current_size = block_size * count
+                            previous_progress = progress_bar.n / total_size * 100 
+                            current_progress = current_size / total_size * 100
 
-                        if current_progress > previous_progress + 10:
-                            progress_bar.total = total_size
-                            progress_bar.update(current_size - progress_bar.n)
+                            if current_progress > previous_progress + 10:
+                                progress_bar.total = total_size
+                                progress_bar.update(current_size - progress_bar.n)
 
-                    urllib.request.urlretrieve(
-                        str_url_path_to_file, str_path_where_to_save, progress_hook)
-        except urllib.error.URLError as ex:
-            LOGGER.debug(
-                "[WARNING] File not found: %s", str_url_path_to_file)
-            return 0
-        except Exception as ex:
-            LOGGER.warning("Unable to download raw file: %s", ex)
-            return 0
-        return 1
+                        urllib.request.urlretrieve(
+                            str_url_path_to_file, str_path_where_to_save, progress_hook)
+                return 1
+                
+            except urllib.error.HTTPError as ex:
+                LOGGER.debug(
+                    "[WARNING] HTTP Error %d (%s) for %s", 
+                    ex.code, ex.reason, str_url_path_to_file
+                )
+                if ex.code == 404:  # File not found, no need to retry
+                    LOGGER.debug(
+                        "[WARNING] File not found: %s", str_url_path_to_file
+                    )
+                    return 0
+                retry_count += 1
+                
+            except urllib.error.URLError as ex:
+                LOGGER.debug(
+                    "[WARNING] URL Error: %s for %s", 
+                    ex.reason, str_url_path_to_file
+                )
+                retry_count += 1
+                
+            except urllib.error.ContentTooShortError as ex:
+                LOGGER.debug(
+                    "[WARNING] Download incomplete for %s: %s", 
+                    str_url_path_to_file, str(ex)
+                )
+                retry_count += 1
+                
+            if retry_count < max_retries:
+                wait_time = retry_base_time ** retry_count
+                time.sleep(wait_time)  
+            else:
+                LOGGER.warning(
+                    "Failed to download after %d retries: %s", 
+                    max_retries, str_url_path_to_file
+                )
+                return 0
 
     def _print_dump_statistics(self):
         """Print the latest dump statistics"""
