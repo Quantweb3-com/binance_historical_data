@@ -19,6 +19,7 @@ from dateutil.relativedelta import relativedelta
 
 # Third party imports
 import boto3
+import botocore
 import certifi
 from tqdm.auto import tqdm
 from char import char
@@ -661,6 +662,63 @@ class BinanceDataDumper:
                 LOGGER.warning(
                     "Failed to download after %d retries: %s", 
                     max_retries, str_url_path_to_file
+                )
+                return 0
+    
+    def _download_raw_file_v2(self, str_url_path_to_file: str, str_path_where_to_save: str, retry_base_time: int=2, max_retries: int=5):
+        """从S3下载文件"""
+        # 从URL中提取key
+        key = str_url_path_to_file.replace("https://data.binance.vision/data/", "")
+        key = key.replace("\\", "/")
+        
+        key = urljoin(self._bucket_prefix, key)
+        
+        retry_count = 0
+        while retry_count < max_retries:
+            try:
+                if "trades" not in key.lower():
+                    self._s3.download_file(
+                        self._bucket_name,
+                        key,
+                        str_path_where_to_save
+                    )
+                else:
+                    # 对于trades数据使用进度条
+                    with tqdm(unit="B", unit_scale=True, miniters=1,
+                            desc="downloading: " + key.split("/")[-1]) as progress_bar:
+                        def progress_callback(bytes_amount):
+                            progress_bar.update(bytes_amount)
+                            
+                        self._s3.download_file(
+                            self._bucket_name,
+                            key, 
+                            str_path_where_to_save,
+                            Callback=progress_callback
+                        )
+                return 1
+                
+            except botocore.exceptions.ClientError as e:
+                if e.response['Error']['Code'] == '404':
+                    LOGGER.warning(
+                        "[WARNING] File not found: %s", key
+                    )
+                    return 0
+                retry_count += 1
+                
+            except Exception as ex:
+                LOGGER.warning(
+                    "[WARNING] Error downloading %s: %s",
+                    key, str(ex)
+                )
+                retry_count += 1
+                
+            if retry_count < max_retries:
+                wait_time = retry_base_time ** retry_count
+                time.sleep(wait_time)
+            else:
+                LOGGER.warning(
+                    "Failed to download after %d retries: %s",
+                    max_retries, key
                 )
                 return 0
 
