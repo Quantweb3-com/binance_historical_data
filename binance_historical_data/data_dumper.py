@@ -14,14 +14,17 @@ import datetime
 import pandas as pd
 import time
 
+from urllib.parse import urljoin
 from dateutil.relativedelta import relativedelta
 
 # Third party imports
+import boto3
 import certifi
 from tqdm.auto import tqdm
 from char import char
 from mpire import WorkerPool
-
+from botocore import UNSIGNED
+from botocore.config import Config
 # Local imports
 
 # Global constants
@@ -92,6 +95,10 @@ class BinanceDataDumper:
         self._asset_class = asset_class
         self._data_type = data_type
         self._save_format = save_format
+        self._s3 = boto3.client('s3', config=Config(signature_version=UNSIGNED))
+        
+        self._bucket_name = "data.binance.vision"
+        self._bucket_prefix = "data/"
         
     @char
     def dump_data(
@@ -203,7 +210,22 @@ class BinanceDataDumper:
         data = json.load(res)
         return data.get("country", "Unknown")
 
-
+    def _get_list_all_available_files_v2(self, prefix=""):
+        keys = []
+        try:
+            prefix = prefix.replace("\\", "/")
+            prefix = urljoin(self._bucket_prefix, prefix)
+            paginator = self._s3.get_paginator('list_objects_v2')
+            page_iterator = paginator.paginate(Bucket=self._bucket_name, Prefix=f"{prefix}/")
+            for page in page_iterator:  
+                if 'Contents' in page:
+                    for obj in page['Contents']:
+                        if obj['Key'].endswith('.zip') or obj['Key'].endswith('.CHECKSUM'):
+                            keys.append(obj['Key'])
+            return keys
+        except Exception as e:
+            LOGGER.error(f"Error getting list of files: {e}")
+            return keys
 
     def _get_list_all_available_files(self, prefix=""):
         """Get all available files from the binance servers"""
@@ -242,7 +264,7 @@ class BinanceDataDumper:
         try:
             date_found = False
 
-            files = self._get_list_all_available_files(prefix=path_folder_prefix)
+            files = self._get_list_all_available_files_v2(prefix=path_folder_prefix)
             for file in files:
                 date_str = file.split('.')[0].split('-')[-2:]
                 date_str = '-'.join(date_str)
@@ -253,7 +275,7 @@ class BinanceDataDumper:
 
             if not date_found:
                 path_folder_prefix = self._get_path_suffix_to_dir_with_data("daily", ticker)
-                files = self._get_list_all_available_files(prefix=path_folder_prefix)
+                files = self._get_list_all_available_files_v2(prefix=path_folder_prefix)
                 for file in files:
                     date_str = file.split('.')[0].split('-')[-3:]
                     date_str = '-'.join(date_str)
