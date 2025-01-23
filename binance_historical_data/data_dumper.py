@@ -141,7 +141,11 @@ class BinanceDataDumper:
         self._save_format = save_format
         self._s3 = boto3.client(
             "s3",
-            config=Config(signature_version=UNSIGNED, region_name="ap-northeast-1"),
+            config=Config(
+                signature_version=UNSIGNED,
+                region_name="ap-northeast-1",
+                retries={"max_attempts": 5},
+            ),
         )
 
         self._bucket_name = "data.binance.vision"
@@ -275,24 +279,21 @@ class BinanceDataDumper:
 
     def _get_list_all_available_files_v2(self, prefix=""):
         keys = []
-        try:
-            prefix = prefix.replace("\\", "/")
-            prefix = urljoin(self._bucket_prefix, prefix)
-            paginator = self._s3.get_paginator("list_objects_v2")
-            page_iterator = paginator.paginate(
-                Bucket=self._bucket_name, Prefix=f"{prefix}/"
-            )
-            for page in page_iterator:
-                if "Contents" in page:
-                    for obj in page["Contents"]:
-                        if obj["Key"].endswith(".zip") or obj["Key"].endswith(
-                            ".CHECKSUM"
-                        ):
-                            keys.append(obj["Key"])
-            return keys
-        except Exception as e:
-            LOGGER.error(f"Error getting list of files: {e}")
-            return keys
+
+        prefix = prefix.replace("\\", "/")
+        prefix = urljoin(self._bucket_prefix, prefix)
+        paginator = self._s3.get_paginator("list_objects_v2")
+        page_iterator = paginator.paginate(
+            Bucket=self._bucket_name, Prefix=f"{prefix}/"
+        )
+        for page in page_iterator:
+            if "Contents" in page:
+                for obj in page["Contents"]:
+                    if obj["Key"].endswith(".zip"):
+                        keys.append(obj["Key"])
+        if keys == []:
+            raise ValueError("No KEYS found")
+        return keys
 
     def _get_list_all_available_files(self, prefix=""):
         """Get all available files from the binance servers"""
