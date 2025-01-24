@@ -153,6 +153,7 @@ class BinanceDataDumper:
 
         self._retry_base_time = retry_base_time
         self._max_retries = max_retries
+        self._ssl_context = ssl.create_default_context(cafile=certifi.where())
 
     @char
     def dump_data(
@@ -254,26 +255,25 @@ class BinanceDataDumper:
         #####
         if self._asset_class == "um":
             response = urllib.request.urlopen(
-                f"https://fapi.binance.{tld}/fapi/v1/exchangeInfo"
+                f"https://fapi.binance.{tld}/fapi/v1/exchangeInfo", context=self._ssl_context
             ).read()
         elif self._asset_class == "cm":
             response = urllib.request.urlopen(
-                f"https://dapi.binance.{tld}/dapi/v1/exchangeInfo"
+                f"https://dapi.binance.{tld}/dapi/v1/exchangeInfo", context=self._ssl_context
             ).read()
         else:
             # https://api.binance.us/api/v3/exchangeInfo
             response = urllib.request.urlopen(
-                f"https://api.binance.{tld}/api/v3/exchangeInfo"
+                f"https://api.binance.{tld}/api/v3/exchangeInfo", context=self._ssl_context
             ).read()
         return list(
             map(lambda symbol: symbol["symbol"], json.loads(response)["symbols"])
         )
 
-    @staticmethod
-    def _get_user_country_from_ip() -> str:
+    def _get_user_country_from_ip(self) -> str:
         """Get user country to select the right binance url"""
         url = "https://ipinfo.io/json"
-        res = urllib.request.urlopen(url)
+        res = urllib.request.urlopen(url, context=self._ssl_context)
         data = json.load(res)
         return data.get("country", "Unknown")
 
@@ -303,9 +303,8 @@ class BinanceDataDumper:
             .replace("data/", "?prefix=data/")
         )
 
-        ssl_context = ssl.create_default_context(cafile=certifi.where())
 
-        response = urllib.request.urlopen(url, context=ssl_context)
+        response = urllib.request.urlopen(url, context=self._ssl_context)
         html_content = response.read().decode("utf-8")
 
         # Extract the BUCKET_URL variable
@@ -321,7 +320,7 @@ class BinanceDataDumper:
             )
 
             # Retrieve the content of the BUCKET_URL
-            bucket_response = urllib.request.urlopen(bucket_url, context=ssl_context)
+            bucket_response = urllib.request.urlopen(bucket_url, context=self._ssl_context)
             bucket_content = bucket_response.read().decode("utf-8")
 
             # Parse the XML content and extract all <Key> elements
@@ -618,6 +617,8 @@ class BinanceDataDumper:
                 if self._data_type == "klines":
                     # NOTE: fix the problem of spot klines data (after 2025-01-01) wrongly formatted
                     df = self._read_klines_csv(path_zip_raw_file)
+                elif self._data_type == "metrics":
+                    df = self._read_metrics_csv(path_zip_raw_file)
                 else:
                     df = pd.read_csv(path_zip_raw_file)
                 path_parquet_file = path_zip_raw_file.replace(".zip", ".parquet")
@@ -636,6 +637,40 @@ class BinanceDataDumper:
             )
             return None
         return date_obj
+    
+    def _read_metrics_csv(self, path_zip_raw_file):
+        """读取指标数据CSV文件，自动处理有无header的情况
+        """
+        dtype_dict = {
+            "create_time": "str",
+            "symbol": "str",
+            "sum_open_interest": "float64",
+            "sum_open_interest_value": "float64",
+            "count_toptrader_long_short_ratio": "float64",
+            "sum_toptrader_long_short_ratio": "float64",
+            "count_long_short_ratio": "float64",
+            "sum_taker_long_short_vol_ratio": "float64"
+        }
+        
+        expected_columns = [
+            "create_time",
+            "symbol",
+            "sum_open_interest",
+            "sum_open_interest_value",
+            "count_toptrader_long_short_ratio",
+            "sum_toptrader_long_short_ratio",
+            "count_long_short_ratio",
+            "sum_taker_long_short_vol_ratio"
+        ]
+        
+        df = pd.read_csv(path_zip_raw_file, dtype=dtype_dict)
+        
+        if list(df.columns) != expected_columns:
+            df = pd.read_csv(path_zip_raw_file, header=None, names=expected_columns, dtype=dtype_dict)
+        
+        df["timestamp"] = pd.to_datetime(df["create_time"], utc=True).astype('int64') // 10**6
+        return df
+
 
     def _read_klines_csv(self, path_zip_raw_file):
         """读取K线数据CSV文件，自动处理有无header的情况

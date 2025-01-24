@@ -56,3 +56,5 @@ MANIFEST
 # BinanceFutures
 cache/*
 main.py
+klines.py
+metrix.py
