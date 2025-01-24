@@ -278,22 +278,23 @@ class BinanceDataDumper:
         return data.get("country", "Unknown")
 
     def _get_list_all_available_files_v2(self, prefix=""):
-        keys = []
+        try:
+            keys = []
 
-        prefix = prefix.replace("\\", "/")
-        prefix = urljoin(self._bucket_prefix, prefix)
-        paginator = self._s3.get_paginator("list_objects_v2")
-        page_iterator = paginator.paginate(
-            Bucket=self._bucket_name, Prefix=f"{prefix}/"
-        )
-        for page in page_iterator:
-            if "Contents" in page:
-                for obj in page["Contents"]:
-                    if obj["Key"].endswith(".zip"):
-                        keys.append(obj["Key"])
-        if keys == []:
+            prefix = prefix.replace("\\", "/")
+            prefix = urljoin(self._bucket_prefix, prefix)
+            paginator = self._s3.get_paginator("list_objects_v2")
+            page_iterator = paginator.paginate(
+                Bucket=self._bucket_name, Prefix=f"{prefix}/"
+            )
+            for page in page_iterator:
+                if "Contents" in page:
+                    for obj in page["Contents"]:
+                        if obj["Key"].endswith(".zip"):
+                            keys.append(obj["Key"])        
+            return keys
+        except Exception:
             raise ValueError("No KEYS found")
-        return keys
 
     def _get_list_all_available_files(self, prefix=""):
         """Get all available files from the binance servers"""
@@ -908,7 +909,7 @@ class BinanceDataDumper:
             dict_stats = self.dict_new_points_saved_by_ticker[ticker]
             list_months_saved.append(dict_stats.get("monthly", 0))
             list_days_saved.append(dict_stats.get("daily", 0))
-            if dict_stats["monthly"] or dict_stats["daily"]:
+            if dict_stats.get("monthly", None) or dict_stats.get("daily", None):
                 int_non_empty_dump_res += 1
             else:
                 int_empty_dump_res += 1
