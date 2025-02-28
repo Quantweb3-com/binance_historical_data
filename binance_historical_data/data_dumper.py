@@ -54,6 +54,7 @@ class BinanceDataDumper:
             "markPriceKlines",
             "premiumIndexKlines",
             "metrics",
+            "liquidationSnapshot",
         ),
     }
     _DATA_FREQUENCY_NEEDED_FOR_TYPE = (
@@ -218,7 +219,7 @@ class BinanceDataDumper:
         )
         for ticker in tqdm(list_trading_pairs, leave=True, desc="Tickers"):
             # 1) Download all monthly data
-            if self._data_type != "metrics" and (
+            if self._data_type not in  ("metrics", "liquidationSnapshot") and (
                 date_end_first_day_of_month - relativedelta(days=1) > date_start
             ):
                 self._download_data_for_1_ticker(
@@ -229,7 +230,7 @@ class BinanceDataDumper:
                     is_to_update_existing=is_to_update_existing,
                 )
             # 2) Download all daily date
-            if self._data_type == "metrics":
+            if self._data_type in ("metrics", "liquidationSnapshot"):
                 date_start_daily = date_start
             else:
                 date_start_daily = date_end_first_day_of_month
@@ -620,6 +621,8 @@ class BinanceDataDumper:
                     df = self._read_klines_csv(path_zip_raw_file)
                 elif self._data_type == "metrics":
                     df = self._read_metrics_csv(path_zip_raw_file)
+                elif self._data_type == "liquidationSnapshot":
+                    df = self._read_liquidation_snapshot_csv(path_zip_raw_file)
                 else:
                     df = pd.read_csv(path_zip_raw_file)
                 path_parquet_file = path_zip_raw_file.replace(".zip", ".parquet")
@@ -638,6 +641,49 @@ class BinanceDataDumper:
             )
             return None
         return date_obj
+    
+    def _read_liquidation_snapshot_csv(self, path_zip_raw_file):
+        """读取清算快照数据CSV文件，自动处理有无header的情况
+
+        Args:
+            path_zip_raw_file (str): CSV文件路径
+
+        Returns:
+            pd.DataFrame: 处理后的数据框
+        """
+        dtype_dict = {
+            "time": "int",
+            "side": "str",
+            "order_type": "str",
+            "time_in_force": "str",
+            "original_quantity": "float64",
+            "price": "float64",
+            "average_price": "float64",
+            "order_status": "str",
+            "last_fill_quantity": "float64",
+            "accumulated_fill_quantity": "float64",
+        }
+        
+        expected_columns = [
+            "time",
+            "side",
+            "order_type",
+            "time_in_force",
+            "original_quantity",
+            "price",
+            "average_price",
+            "order_status",
+            "last_fill_quantity",
+            "accumulated_fill_quantity",
+        ]
+        
+        df = pd.read_csv(path_zip_raw_file)
+        
+        if list(df.columns) != expected_columns:
+            df = pd.read_csv(path_zip_raw_file, header=None, names=expected_columns, dtype=dtype_dict)
+        
+        df["timestamp"] = df["time"].apply(self.standardize_to_ms)
+        return df
     
     def _read_metrics_csv(self, path_zip_raw_file):
         """读取指标数据CSV文件，自动处理有无header的情况
@@ -672,6 +718,14 @@ class BinanceDataDumper:
         df["timestamp"] = pd.to_datetime(df["create_time"], utc=True).astype('int64') // 10**6
         return df
 
+    @staticmethod
+    def standardize_to_ms(x):
+        str_x = str(x)
+        if len(str_x) > 13:  # if len(str_x) > 13, it's us or ns
+            return x // (10 ** (len(str_x) - 13))  # convert to ms
+        elif len(str_x) < 13:  # if len(str_x) < 13, it's s
+            return x * (10 ** (13 - len(str_x)))  # convert to ms
+        return x
 
     def _read_klines_csv(self, path_zip_raw_file):
         """读取K线数据CSV文件，自动处理有无header的情况
@@ -720,7 +774,8 @@ class BinanceDataDumper:
             df = pd.read_csv(
                 path_zip_raw_file, header=None, names=expected_columns, dtype=dtype_dict
             )
-
+        
+        df["timestamp"] = df["open_time"].apply(self.standardize_to_ms)
         return df
 
     def _get_path_suffix_to_dir_with_data(self, timeperiod_per_file, ticker):
